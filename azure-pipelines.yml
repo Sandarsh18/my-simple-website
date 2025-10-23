@@ -1,17 +1,49 @@
-# HTML
-# Archive your static HTML project and save it with the build record.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
+# This is the trigger. It starts the pipeline whenever you make a change to your main branch in GitHub.
 trigger:
 - main
 
+# This tells the pipeline to use a Microsoft-hosted computer to run the steps.
 pool:
-  vmImage: ubuntu-latest
+  vmImage: 'windows-latest'
 
-steps:
-- task: ArchiveFiles@2
-  inputs:
-    rootFolderOrFile: '$(build.sourcesDirectory)'
-    includeRootFolder: false
-- task: PublishBuildArtifacts@1
+# This section defines the major steps (stages) of our assembly line.
+stages:
+- stage: Build # First stage: The "Quality Check" part.
+  displayName: Build stage
+  jobs:  
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: 'windows-latest'
+    steps:
+    - task: ArchiveFiles@2 # This is the same task from before. It packages your website into a .zip file.
+      inputs:
+        rootFolderOrFile: '$(Build.SourcesDirectory)'
+        includeRootFolder: false
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
+        replaceExistingArchive: true
+
+    - upload: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip # This publishes the .zip file so the next stage can use it.
+      artifact: drop
+
+- stage: Deploy # Second stage: The "Delivery Truck" part.
+  displayName: Deploy stage
+  dependsOn: Build # This stage will only run if the "Build" stage succeeds.
+  condition: succeeded()
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    environment: 'production' # A label for the environment we are deploying to.
+    pool: 
+      vmImage: 'windows-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebApp@1 # This is the task that deploys to your Azure Web App.
+            inputs:
+              azureSubscription: '<YOUR_AZURE_SUBSCRIPTION_NAME>'
+              appType: 'webAppWindows'
+              appName: 'my-awesome-website-12345'
+              package: '$(Pipeline.Workspace)/drop/$(Build.BuildId).zip'
